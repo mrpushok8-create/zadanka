@@ -1,309 +1,255 @@
 import tkinter as tk
 from tkinter import messagebox
 import time
-from dataclasses import dataclass
-from typing import Callable
+from types import SimpleNamespace
+from functools import partial
 
 # ============================================================================
-# КОНСТАНТЫ И КОНФИГУРАЦИЯ
+# КОНСТАНТЫ (именованные кортежи для скорости)
 # ============================================================================
 
-@dataclass
-class UIConfig:
-    """Конфигурация пользовательского интерфейса"""
-    TITLE = "Управление светодиодами"
-    SIZE = "350x280"
-    BG_COLOR = "#1a1b2e"
+_CFG = SimpleNamespace(
+    # Окно
+    TITLE="LED Controller",
+    SIZE="320x260",
+    BG="#1a1b2e",
+    FG="#ffffff",
     
     # Цвета кнопок (фон, текст)
-    BLUE_BTN = ("#2563eb", "#dbeafe")
-    RED_BTN = ("#dc2626", "#fee2e2")
-    GREEN_BTN = ("#16a34a", "#dcfce7")
-    GRAY_BTN = ("#4b5563", "#f3f4f6")
+    COL_BLUE=("#2563eb", "#dbeafe"),
+    COL_RED=("#dc2626", "#fee2e2"),
+    COL_GREEN=("#16a34a", "#dcfce7"),
+    COL_GRAY=("#4b5563", "#f3f4f6"),
     
-    # Шрифты
-    FONT_HEADER = ("Arial", 22, "bold")
-    FONT_LABEL = ("Calibri", 11)
-    FONT_BUTTON = ("Calibri", 10, "bold")
+    # Цвета элементов
+    ENTRY_BG="#2d3748",
+    SLIDER_BG="#374151",
+    TEXT_COL="#e5e7eb",
     
-    # Размеры и отступы
-    BTN_PADDING = (15, 8)
-    ENTRY_WIDTH = 15
-    SLIDER_LENGTH = 180
+    # Пины (синий, красный)
+    PINS=(3, 5),
+    
+    # Размеры
+    ENTRY_W=12,
+    SLIDER_L=160,
+    BTN_W=14
+)
 
 # ============================================================================
-# МОДЕЛЬ ДАННЫХ И ЛОГИКА
+# ГЛОБАЛЬНЫЕ КОМПОНЕНТЫ (минимизация создания объектов)
 # ============================================================================
 
-class LEDModel:
-    """Модель для управления светодиодами"""
-    
-    # Пины Arduino (закомментировано для тестирования)
-    PINS = {"blue": 3, "red": 5}
-    
-    @staticmethod
-    def control_led(pin: int, duration: float, intensity: int) -> None:
-        """
-        Управление светодиодом (эмуляция).
-        
-        Args:
-            pin: Номер пина Arduino
-            duration: Время свечения в секундах
-            intensity: Яркость 0-100%
-        """
-        brightness = intensity / 100.0
-        # Реальный код для Arduino:
-        # board.digital[pin].write(brightness)
-        # time.sleep(duration)
-        # board.digital[pin].write(0)
-        
-        print(f"LED {pin}: {duration} сек, {intensity}%")
-        time.sleep(duration)  # Эмуляция задержки
+# Единый стиль для меток
+_label_style = {
+    'bg': _CFG.BG,
+    'fg': _CFG.TEXT_COL,
+    'font': ('Calibri', 11)
+}
+
+# Единый стиль для полей ввода
+_entry_style = {
+    'width': _CFG.ENTRY_W,
+    'bg': _CFG.ENTRY_BG,
+    'fg': _CFG.FG,
+    'insertbackground': 'white',
+    'relief': 'flat',
+    'font': ('Calibri', 11)
+}
+
+# Стиль для слайдера
+_slider_style = {
+    'from_': 0,
+    'to': 100,
+    'orient': tk.HORIZONTAL,
+    'length': _CFG.SLIDER_L,
+    'bg': _CFG.BG,
+    'fg': _CFG.FG,
+    'troughcolor': _CFG.SLIDER_BG,
+    'highlightthickness': 0
+}
 
 # ============================================================================
-# КОМПОНЕНТЫ ИНТЕРФЕЙСА
+# ФУНКЦИИ СОЗДАНИЯ ВИДЖЕТОВ (вместо классов)
 # ============================================================================
 
-class LabeledControl(tk.Frame):
-    """Виджет с меткой и элементом управления"""
-    
-    def __init__(self, parent, label_text: str, control_widget, **kwargs):
-        super().__init__(parent, bg=UIConfig.BG_COLOR)
-        self.label = self._create_label(label_text)
-        self.control = control_widget(self, **kwargs)
-        self._pack_components()
-    
-    def _create_label(self, text: str) -> tk.Label:
-        return tk.Label(
-            self,
-            text=text,
-            font=UIConfig.FONT_LABEL,
-            fg="#e5e7eb",
-            bg=UIConfig.BG_COLOR
-        )
-    
-    def _pack_components(self) -> None:
-        self.label.pack(side='left')
-        self.control.pack(side='right')
+def create_label(parent, text, **kwargs):
+    """Создание метки с предустановленным стилем"""
+    style = _label_style.copy()
+    style.update(kwargs)
+    return tk.Label(parent, text=text, **style)
 
-class LEDButton(tk.Button):
-    """Специализированная кнопка для управления светодиодами"""
-    
-    def __init__(self, parent, text: str, colors: tuple, command: Callable):
-        bg_color, fg_color = colors
-        super().__init__(
-            parent,
-            text=text,
-            font=UIConfig.FONT_BUTTON,
-            bg=bg_color,
-            fg=fg_color,
-            relief="flat",
-            padx=UIConfig.BTN_PADDING[0],
-            pady=UIConfig.BTN_PADDING[1],
-            cursor="hand2",
-            command=command
-        )
+def create_entry(parent, **kwargs):
+    """Создание поля ввода"""
+    style = _entry_style.copy()
+    style.update(kwargs)
+    widget = tk.Entry(parent, **style)
+    widget.insert(0, "1.0")
+    return widget
+
+def create_slider(parent, **kwargs):
+    """Создание слайдера"""
+    style = _slider_style.copy()
+    style.update(kwargs)
+    widget = tk.Scale(parent, **style)
+    widget.set(50)
+    return widget
+
+def create_button(parent, text, colors, command, width=_CFG.BTN_W):
+    """Создание кнопки"""
+    bg, fg = colors
+    return tk.Button(
+        parent,
+        text=text,
+        font=('Calibri', 10, 'bold'),
+        bg=bg,
+        fg=fg,
+        relief='flat',
+        width=width,
+        cursor='hand2',
+        command=command
+    )
 
 # ============================================================================
-# ГЛАВНОЕ ОКНО ПРИЛОЖЕНИЯ
+# БИЗНЕС-ЛОГИКА
 # ============================================================================
 
-class LEDControlApp:
-    """Основной класс приложения"""
-    
-    def __init__(self):
-        self.root = self._create_window()
-        self.model = LEDModel()
-        self._setup_variables()
-        self._create_ui()
-    
-    def _create_window(self) -> tk.Tk:
-        """Создание и настройка главного окна"""
-        root = tk.Tk()
-        root.title(UIConfig.TITLE)
-        root.geometry(UIConfig.SIZE)
-        root.configure(bg=UIConfig.BG_COLOR)
-        root.resizable(False, False)
-        return root
-    
-    def _setup_variables(self) -> None:
-        """Инициализация переменных"""
-        self.active_buttons = set()
-    
-    def _create_ui(self) -> None:
-        """Создание интерфейса"""
-        self._create_header()
-        self._create_control_panel()
-        self._create_button_panel()
-    
-    def _create_header(self) -> None:
-        """Создание заголовка"""
-        header = tk.Label(
-            self.root,
-            text="УПРАВЛЕНИЕ СВЕТОДИОДАМИ",
-            font=UIConfig.FONT_HEADER,
-            fg="#ffffff",
-            bg=UIConfig.BG_COLOR
-        )
-        header.pack(pady=15)
-    
-    def _create_control_panel(self) -> None:
-        """Создание панели управления"""
-        panel = tk.Frame(self.root, bg=UIConfig.BG_COLOR)
-        panel.pack(pady=10, padx=20, fill='x')
-        
-        # Поле ввода времени
-        self.time_entry = tk.Entry(
-            panel,
-            width=UIConfig.ENTRY_WIDTH,
-            font=UIConfig.FONT_LABEL,
-            bg="#2d3748",
-            fg="#ffffff",
-            insertbackground="white",
-            relief="flat"
-        )
-        self.time_entry.insert(0, "1.0")
-        
-        time_control = LabeledControl(
-            panel,
-            "Длительность (сек):",
-            lambda p: self.time_entry
-        )
-        time_control.pack(fill='x', pady=5)
-        
-        # Слайдер яркости
-        self.brightness_var = tk.IntVar(value=50)
-        self.brightness_slider = tk.Scale(
-            panel,
-            from_=0,
-            to=100,
-            orient=tk.HORIZONTAL,
-            length=UIConfig.SLIDER_LENGTH,
-            variable=self.brightness_var,
-            bg=UIConfig.BG_COLOR,
-            fg="#ffffff",
-            troughcolor="#374151",
-            highlightthickness=0
-        )
-        
-        brightness_control = LabeledControl(
-            panel,
-            "Уровень яркости:",
-            lambda p: self.brightness_slider
-        )
-        brightness_control.pack(fill='x', pady=10)
-    
-    def _create_button_panel(self) -> None:
-        """Создание панели кнопок"""
-        button_frame = tk.Frame(self.root, bg=UIConfig.BG_COLOR)
-        button_frame.pack(pady=20, padx=20)
-        
-        # Кнопки светодиодов
-        self.blue_btn = LEDButton(
-            button_frame,
-            "СИНИЙ СВЕТОДИОД",
-            UIConfig.BLUE_BTN,
-            lambda: self._activate_led("blue")
-        )
-        self.blue_btn.grid(row=0, column=0, padx=5, pady=5)
-        
-        self.red_btn = LEDButton(
-            button_frame,
-            "КРАСНЫЙ СВЕТОДИОД",
-            UIConfig.RED_BTN,
-            lambda: self._activate_led("red")
-        )
-        self.red_btn.grid(row=0, column=1, padx=5, pady=5)
-        
-        # Панель служебных кнопок
-        service_frame = tk.Frame(self.root, bg=UIConfig.BG_COLOR)
-        service_frame.pack(pady=10)
-        
-        LEDButton(
-            service_frame,
-            "СПРАВКА",
-            UIConfig.GREEN_BTN,
-            self._show_help
-        ).pack(side='left', padx=5)
-        
-        LEDButton(
-            service_frame,
-            "ВЫХОД",
-            UIConfig.GRAY_BTN,
-            self.root.quit
-        ).pack(side='left', padx=5)
-    
-    # ============================================================================
-    # ОБРАБОТЧИКИ СОБЫТИЙ
-    # ============================================================================
-    
-    def _activate_led(self, color: str) -> None:
-        """Активация светодиода"""
-        button_map = {
-            "blue": (self.blue_btn, LEDModel.PINS["blue"]),
-            "red": (self.red_btn, LEDModel.PINS["red"])
-        }
-        
-        if color not in button_map:
-            return
-        
-        button, pin = button_map[color]
-        
-        # Блокировка кнопки на время выполнения
-        self._toggle_button(button, False)
+def control_led(pin, duration, intensity):
+    """Управление светодиодом (эмуляция)"""
+    # board.digital[pin].write(intensity / 100.0)
+    # time.sleep(duration)
+    # board.digital[pin].write(0)
+    time.sleep(duration)  # Эмуляция задержки
+    print(f"PIN {pin}: {duration}s, {intensity}%")
+
+# ============================================================================
+# ОБРАБОТЧИКИ СОБЫТИЙ (замыкания для скорости)
+# ============================================================================
+
+def make_led_handler(pin_idx, time_widget, slider_widget, button_widget):
+    """Создание обработчика для светодиода"""
+    def handler():
+        button_widget.config(state=tk.DISABLED)
+        button_widget.update_idletasks()
         
         try:
-            duration = self._get_duration()
-            brightness = self.brightness_var.get()
-            
-            # Вызов модели для управления светодиодом
-            self.model.control_led(pin, duration, brightness)
+            duration = float(time_widget.get())
+            if duration <= 0:
+                raise ValueError("Длительность должна быть > 0")
+                
+            brightness = slider_widget.get()
+            control_led(_CFG.PINS[pin_idx], duration, brightness)
             
         except ValueError as e:
             messagebox.showerror("Ошибка", str(e))
         finally:
-            self._toggle_button(button, True)
+            button_widget.config(state=tk.NORMAL)
     
-    def _get_duration(self) -> float:
-        """Получение и валидация длительности"""
-        try:
-            value = float(self.time_entry.get())
-            if value <= 0:
-                raise ValueError("Длительность должна быть больше 0")
-            return value
-        except ValueError:
-            raise ValueError("Введите корректное число для времени")
-    
-    def _toggle_button(self, button: tk.Button, enabled: bool) -> None:
-        """Изменение состояния кнопки"""
-        state = tk.NORMAL if enabled else tk.DISABLED
-        button.config(state=state)
-        self.root.update_idletasks()
-    
-    def _show_help(self) -> None:
-        """Показать справочную информацию"""
-        help_text = (
-            "Программа управления светодиодами v1.0\n\n"
-            "Функциональные возможности:\n"
-            "• Управление синим и красным светодиодами\n"
-            "• Регулировка длительности свечения\n"
-            "• Плавная регулировка яркости\n\n"
-            "Разработка: 2026 год"
-        )
-        messagebox.showinfo("Справка", help_text)
-    
-    def run(self) -> None:
-        """Запуск основного цикла приложения"""
-        self.root.mainloop()
+    return handler
+
+def show_help():
+    """Показать справку"""
+    messagebox.showinfo(
+        "Справка",
+        "LED Controller v2.0\n\n"
+        "Управление светодиодами Arduino\n"
+        "Оптимизированная версия"
+    )
 
 # ============================================================================
-# ТОЧКА ВХОДА
+# ПОСТРОЕНИЕ ИНТЕРФЕЙСА (одна функция для минимизации накладных расходов)
+# ============================================================================
+
+def build_gui():
+    """Создание всего интерфейса"""
+    root = tk.Tk()
+    root.title(_CFG.TITLE)
+    root.geometry(_CFG.SIZE)
+    root.configure(bg=_CFG.BG)
+    root.resizable(False, False)
+    
+    # Заголовок
+    tk.Label(
+        root,
+        text="LED CONTROLLER",
+        font=('Arial', 20, 'bold'),
+        fg=_CFG.FG,
+        bg=_CFG.BG
+    ).pack(pady=10)
+    
+    # Контейнер для элементов управления
+    controls = tk.Frame(root, bg=_CFG.BG)
+    controls.pack(pady=5, padx=15, fill='x')
+    
+    # Поле ввода времени
+    create_label(controls, "Время (сек):").grid(row=0, column=0, sticky='w', pady=5)
+    time_entry = create_entry(controls)
+    time_entry.grid(row=0, column=1, sticky='e', pady=5)
+    
+    # Слайдер яркости
+    create_label(controls, "Яркость (%):").grid(row=1, column=0, sticky='w', pady=5)
+    brightness_slider = create_slider(controls)
+    brightness_slider.grid(row=1, column=1, sticky='e', pady=5)
+    
+    # Контейнер для кнопок светодиодов
+    led_buttons = tk.Frame(root, bg=_CFG.BG)
+    led_buttons.pack(pady=10)
+    
+    # Кнопки светодиодов
+    blue_btn = create_button(
+        led_buttons,
+        "СИНИЙ LED",
+        _CFG.COL_BLUE,
+        None,  # Заполнится позже
+        16
+    )
+    blue_btn.grid(row=0, column=0, padx=3)
+    
+    red_btn = create_button(
+        led_buttons,
+        "КРАСНЫЙ LED",
+        _CFG.COL_RED,
+        None,  # Заполнится позже
+        16
+    )
+    red_btn.grid(row=0, column=1, padx=3)
+    
+    # Привязка обработчиков (после создания всех виджетов)
+    blue_btn.config(command=make_led_handler(0, time_entry, brightness_slider, blue_btn))
+    red_btn.config(command=make_led_handler(1, time_entry, brightness_slider, red_btn))
+    
+    # Контейнер для служебных кнопок
+    util_buttons = tk.Frame(root, bg=_CFG.BG)
+    util_buttons.pack(pady=5)
+    
+    # Служебные кнопки
+    create_button(
+        util_buttons,
+        "СПРАВКА",
+        _CFG.COL_GREEN,
+        show_help
+    ).pack(side='left', padx=3)
+    
+    create_button(
+        util_buttons,
+        "ВЫХОД",
+        _CFG.COL_GRAY,
+        root.quit
+    ).pack(side='left', padx=3)
+    
+    # Настройка весов колонок для выравнивания
+    controls.grid_columnconfigure(0, weight=1)
+    controls.grid_columnconfigure(1, weight=1)
+    
+    return root
+
+# ============================================================================
+# ТОЧКА ВХОДА (минималистичная)
 # ============================================================================
 
 def main():
-    """Основная функция приложения"""
-    app = LEDControlApp()
-    app.run()
+    """Запуск приложения"""
+    app = build_gui()
+    app.mainloop()
 
 if __name__ == "__main__":
     main()
